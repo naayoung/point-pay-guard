@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: pointpay-guard
+  datasource:
+    url: jdbc:h2:mem:pointpay;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  data:
+    redis:
+      host: ${POINTPAY_REDIS_HOST:localhost}
+      port: ${POINTPAY_REDIS_PORT:6379}
+
+pointpay:
+  redis:
+    idempotency-ttl: 10m
+    lock-wait-time: 500ms
+    lock-lease-time: 5s

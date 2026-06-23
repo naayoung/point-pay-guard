@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: ${POINTPAY_DB_URL:jdbc:postgresql://localhost:5432/pointpay}
+    username: ${POINTPAY_DB_USERNAME:pointpay}
+    password: ${POINTPAY_DB_PASSWORD:pointpay}
+  jpa:
+    hibernate:
+      ddl-auto: update
+  data:
+    redis:
+      host: ${POINTPAY_REDIS_HOST:localhost}
+      port: ${POINTPAY_REDIS_PORT:6379}
