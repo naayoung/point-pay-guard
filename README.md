@@ -56,9 +56,10 @@ npm run dev:demo
 | 결제 취소 | `POST` | `/api/payments/{paymentId}/cancel` | `{ "reason": "사용자 요청" }` |
 | 결제 상태 조회 | `GET` | `/api/payments/{paymentId}` | 없음 |
 | 결제 이벤트 이력 조회 | `GET` | `/api/payments/{paymentId}/events` | 없음 |
+| 전체 결제·정산 집계 조회 | `GET` | `/api/payments/summary` | 없음 |
 | 정산 실행 | `POST` | `/api/settlements/run` | 없음 |
 
-백엔드에는 주문/결제 목록 조회나 전체 집계 API가 없습니다. 프론트 대시보드는 현재 브라우저 세션에서 생성, 조회, 처리한 응답을 기준으로 표시합니다.
+백엔드는 전체 결제 건수·금액, `SETTLED` 기준 누적 정산 건수·금액, 결제 상태별 건수·금액을 집계 API로 제공합니다. 주문/결제 목록 조회 API는 아직 없으며, 프론트 대시보드는 집계 API 연결 전까지 현재 브라우저 세션에서 처리한 응답을 기준으로 표시합니다.
 
 ## 예시 테스트 흐름
 

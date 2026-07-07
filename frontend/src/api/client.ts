@@ -6,6 +6,7 @@ import type {
   OrderResponse,
   PaymentEventResponse,
   PaymentResponse,
+  PaymentSummaryResponse,
   SettlementResponse
 } from "../types/api";
 
@@ -115,6 +116,11 @@ export const api = {
 
   getPaymentEvents(paymentId: number) {
     return request<PaymentEventResponse[]>(`/payments/${paymentId}/events`);
+  },
+
+  // 서버에 저장된 전체 결제와 누적 정산 현황을 상태별로 조회한다.
+  getPaymentSummary() {
+    return request<PaymentSummaryResponse>("/payments/summary");
   },
 
   runSettlement() {

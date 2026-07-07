@@ -58,6 +58,22 @@ export interface PaymentResponse {
   settledAt: string | null;
 }
 
+/** 결제 상태 하나에 해당하는 전체 건수와 금액 합계다. */
+export interface PaymentStatusSummaryResponse {
+  status: PaymentStatus;
+  paymentCount: number;
+  totalAmount: number;
+}
+
+/** 전체 결제 현황과 SETTLED 상태 기준 누적 정산 현황이다. */
+export interface PaymentSummaryResponse {
+  totalPaymentCount: number;
+  totalPaymentAmount: number;
+  settledPaymentCount: number;
+  settledPaymentAmount: number;
+  statusSummaries: PaymentStatusSummaryResponse[];
+}
+
 export interface PaymentEventResponse {
   eventId: number;
   paymentId: number;

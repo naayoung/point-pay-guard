@@ -4,6 +4,7 @@ import com.pointpay.guard.api.dto.ApprovePaymentRequest;
 import com.pointpay.guard.api.dto.CancelPaymentRequest;
 import com.pointpay.guard.api.dto.PaymentEventResponse;
 import com.pointpay.guard.api.dto.PaymentResponse;
+import com.pointpay.guard.api.dto.PaymentSummaryResponse;
 import com.pointpay.guard.service.PaymentQueryService;
 import com.pointpay.guard.service.PaymentService;
 import jakarta.validation.Valid;
@@ -50,5 +51,11 @@ public class PaymentController {
     @GetMapping("/{paymentId}/events")
     public ResponseEntity<List<PaymentEventResponse>> getPaymentEvents(@PathVariable Long paymentId) {
         return ResponseEntity.ok(paymentQueryService.getPaymentEvents(paymentId));
+    }
+
+    // 전체 결제 및 누적 정산 현황을 상태별 건수와 금액으로 조회한다.
+    @GetMapping("/summary")
+    public ResponseEntity<PaymentSummaryResponse> getPaymentSummary() {
+        return ResponseEntity.ok(paymentQueryService.getPaymentSummary());
     }
 }

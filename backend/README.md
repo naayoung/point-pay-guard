@@ -188,6 +188,14 @@ curl http://localhost:8080/api/payments/1
 curl http://localhost:8080/api/payments/1/events
 ```
 
+### 전체 결제·정산 집계 조회
+
+```bash
+curl http://localhost:8080/api/payments/summary
+```
+
+집계 응답은 전체 결제 건수·금액, `SETTLED` 상태 기준 누적 정산 건수·금액, 모든 결제 상태별 건수·금액을 반환합니다. 현재 별도 정산 이력 엔티티는 없으므로 누적 정산 값은 현재 `SETTLED` 상태인 결제를 기준으로 계산합니다.
+
 ## 테스트
 
 ```bash
@@ -195,4 +203,4 @@ cd backend
 ./gradlew test
 ```
 
-테스트는 H2 기반으로 결제 승인, 잔액 부족 실패, 취소 환불, 정산 후 취소 불가, 상태 전이 규칙을 검증합니다.
+테스트는 H2 기반으로 결제 승인, 잔액 부족 실패, 취소 환불, 정산 후 취소 불가, 상태 전이 규칙, 동일 멱등성 키 동시 요청, 전체 결제·정산 집계를 검증합니다.

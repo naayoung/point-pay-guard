@@ -17,7 +17,7 @@ export function Dashboard({ state, onReset }: DashboardProps) {
     state.settlements.flatMap((settlement) => settlement.settledPaymentIds)
   );
 
-  // TODO: 백엔드에 주문/결제 목록 또는 집계 API가 생기면 데모 세션 상태 대신 서버 집계로 교체한다.
+  // TODO: /api/payments/summary를 화면에 연결해 결제·정산 지표를 서버 전체 집계로 교체한다.
   const metrics = [
     { label: "주문 수", value: state.orders.length },
     { label: "결제 수", value: payments.length },
