@@ -137,6 +137,34 @@ a {
   line-height: 1.5;
 }
 
+/* 서버 집계의 로딩·성공·실패 상태를 대시보드 지표 바로 위에서 구분해 보여준다. */
+.status-board .dashboard-summary-state {
+  margin-top: 18px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-board .dashboard-summary-state--loading {
+  border-color: #dfd8bf;
+  background: #fffbeb;
+  color: #75611a;
+}
+
+.status-board .dashboard-summary-state--success {
+  border-color: #b7ddd2;
+  background: #effaf5;
+  color: #174137;
+}
+
+.status-board .dashboard-summary-state--error {
+  border-color: #efc4bd;
+  background: #fff1ee;
+  color: #8f2418;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
