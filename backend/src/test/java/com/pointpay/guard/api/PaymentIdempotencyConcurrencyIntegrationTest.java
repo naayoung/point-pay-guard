@@ -8,6 +8,7 @@ import com.pointpay.guard.api.dto.CreateOrderRequest;
 import com.pointpay.guard.api.dto.OrderResponse;
 import com.pointpay.guard.domain.payment.Payment;
 import com.pointpay.guard.domain.payment.PaymentStatus;
+import com.pointpay.guard.domain.wallet.Wallet;
 import com.pointpay.guard.infrastructure.memory.InMemoryIdempotencyGuard;
 import com.pointpay.guard.repository.PaymentEventRepository;
 import com.pointpay.guard.repository.PaymentRepository;
@@ -33,7 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * 동일한 Idempotency Key를 가진 승인 요청이 동시에 들어왔을 때
+ * 동일한 Idempotency Key를 가진 승인 요청이 대량으로 경합할 때
  * 하나의 요청만 결제를 처리하고 나머지 요청은 중복 요청으로 거절되는지 검증한다.
  */
 @SpringBootTest
@@ -44,7 +45,10 @@ class PaymentIdempotencyConcurrencyIntegrationTest {
 
     // 데모 프로필이 애플리케이션 시작 시 생성하는 사용자와 테스트 결제 정보를 사용한다.
     private static final Long DEMO_USER_ID = 1L;
-    private static final Long PAYMENT_AMOUNT = 10_000L;
+    private static final Long PAYMENT_AMOUNT = 500_000L;
+    private static final Long TEST_BALANCE_TOP_UP_AMOUNT = PAYMENT_AMOUNT;
+    private static final int REQUEST_COUNT = 5_000;
+    private static final int CONCURRENT_WORKER_COUNT = 200;
     private static final String IDEMPOTENCY_KEY = "concurrent-approve-key";
 
     // 실제 HTTP 요청과 동일하게 Controller 진입부터 응답 직렬화까지 검증한다.
@@ -67,57 +71,55 @@ class PaymentIdempotencyConcurrencyIntegrationTest {
     @Autowired
     private PaymentEventRepository paymentEventRepository;
 
-    // 첫 번째 요청의 키 선점 시점을 제어해 두 요청의 경합을 재현한다.
+    // 최초 요청의 키 선점 시점을 제어해 나머지 요청이 처리 중 키와 경합하도록 만든다.
     @Autowired
     private CoordinatedIdempotencyGuard idempotencyGuard;
 
     @Test
-    void concurrentRequestsWithSameIdempotencyKeyProcessPaymentOnlyOnce() throws Exception {
-        // 지갑 잔액을 기록하고 두 승인 요청이 함께 사용할 주문을 준비한다.
+    void fiveThousandRequestsWithSameIdempotencyKeyProcessPaymentOnlyOnce() throws Exception {
+        // 500,000P 결제는 기본 데모 잔액보다 크므로 테스트에서만 지갑 잔액을 보강한다.
+        topUpDemoWalletForLargePayment();
+
+        // 보강된 지갑 잔액을 기준으로 기록하고 모든 승인 요청이 함께 사용할 주문을 준비한다.
         long balanceBeforePayment = walletBalance();
         OrderResponse order = orderService.create(new CreateOrderRequest(DEMO_USER_ID, PAYMENT_AMOUNT));
 
-        // 두 작업 스레드가 모두 준비된 뒤 같은 순간에 HTTP 요청을 보내도록 시작 신호를 공유한다.
-        CountDownLatch requestsReady = new CountDownLatch(2);
+        // 고정 스레드풀의 첫 작업 묶음이 모두 준비된 뒤 같은 순간에 HTTP 요청을 보내도록 시작 신호를 공유한다.
+        CountDownLatch initialWorkersReady = new CountDownLatch(CONCURRENT_WORKER_COUNT);
         CountDownLatch startRequests = new CountDownLatch(1);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_WORKER_COUNT);
 
         // 어떤 요청이 먼저 끝날지 정하지 않고 완료된 응답부터 검증한다.
         ExecutorCompletionService<MvcResult> responses = new ExecutorCompletionService<>(executor);
 
         try {
-            // 요청 내용과 Idempotency Key가 완전히 같은 승인 요청 두 개를 별도 스레드에 등록한다.
-            Future<MvcResult> firstRequest = responses.submit(
-                    () -> approve(order.orderId(), requestsReady, startRequests)
-            );
-            Future<MvcResult> secondRequest = responses.submit(
-                    () -> approve(order.orderId(), requestsReady, startRequests)
-            );
+            // 요청 내용과 Idempotency Key가 완전히 같은 승인 요청 5,000건을 작업 큐에 등록한다.
+            for (int requestIndex = 0; requestIndex < REQUEST_COUNT; requestIndex++) {
+                responses.submit(() -> approve(order.orderId(), initialWorkersReady, startRequests));
+            }
 
-            // 두 스레드가 대기 상태에 도달한 것을 확인한 후 동시에 요청을 시작한다.
-            assertThat(requestsReady.await(5, SECONDS)).isTrue();
+            // 실제 동시 실행 가능한 첫 200개 작업이 대기 상태에 도달한 뒤 요청을 시작한다.
+            assertThat(initialWorkersReady.await(5, SECONDS)).isTrue();
             startRequests.countDown();
 
             // 한 요청이 키를 선점해 PROCESSING 상태가 될 때까지 기다린다.
             assertThat(idempotencyGuard.awaitKeyClaimed()).isTrue();
 
-            // 선점 요청을 잠시 멈춘 상태이므로 다른 요청은 처리 중 중복 요청으로 거절되어야 한다.
-            MvcResult duplicateResponse = completedResponse(responses);
-            assertThat(duplicateResponse.getResponse().getStatus()).isEqualTo(409);
-            assertThat(duplicateResponse.getResponse().getContentAsString())
-                    .contains("\"code\":\"DUPLICATE_PAYMENT_REQUEST\"");
+            // 선점 요청을 잠시 멈춘 상태이므로 나머지 4,999건은 처리 중 중복 요청으로 거절되어야 한다.
+            int duplicateResponseCount = 0;
+            for (int responseIndex = 0; responseIndex < REQUEST_COUNT - 1; responseIndex++) {
+                MvcResult duplicateResponse = completedResponse(responses);
+                assertDuplicateResponse(duplicateResponse);
+                duplicateResponseCount++;
+            }
+            assertThat(duplicateResponseCount).isEqualTo(REQUEST_COUNT - 1);
 
-            // 중복 요청 응답을 확인한 뒤 키를 선점한 요청이 실제 결제를 진행하도록 재개한다.
+            // 모든 중복 요청 응답을 확인한 뒤 키를 선점한 요청이 실제 결제를 진행하도록 재개한다.
             idempotencyGuard.allowClaimedRequestToContinue();
 
             // 선점에 성공한 요청은 정상 승인 결과와 사용한 Idempotency Key를 반환해야 한다.
             MvcResult approvedResponse = completedResponse(responses);
-            assertThat(approvedResponse.getResponse().getStatus()).isEqualTo(200);
-            assertThat(approvedResponse.getResponse().getContentAsString())
-                    .contains("\"status\":\"APPROVED\"")
-                    .contains("\"idempotencyKey\":\"" + IDEMPOTENCY_KEY + "\"");
-            assertThat(firstRequest.isDone()).isTrue();
-            assertThat(secondRequest.isDone()).isTrue();
+            assertApprovedResponse(approvedResponse);
 
             // 최종 DB 상태를 확인해 결제 생성과 포인트 차감이 정확히 한 번만 발생했음을 검증한다.
             assertThat(paymentRepository.count()).isEqualTo(1L);
@@ -138,20 +140,20 @@ class PaymentIdempotencyConcurrencyIntegrationTest {
 
     /**
      * 시작 신호를 기다린 뒤 결제 승인 API를 호출한다.
-     * 두 작업이 요청 직전까지 함께 도달하도록 해 실제 동시 요청을 재현한다.
+     * 첫 작업 묶음이 요청 직전까지 함께 도달하도록 해 동일 키 경합을 재현한다.
      */
     private MvcResult approve(
             Long orderId,
-            CountDownLatch requestsReady,
+            CountDownLatch initialWorkersReady,
             CountDownLatch startRequests
     ) throws Exception {
         // 현재 작업이 요청을 보낼 준비가 되었음을 메인 테스트 스레드에 알린다.
-        requestsReady.countDown();
+        initialWorkersReady.countDown();
         if (!startRequests.await(5, SECONDS)) {
             throw new IllegalStateException("동시 요청 시작 신호를 기다리는 중 시간 초과가 발생했습니다.");
         }
 
-        // 두 요청 모두 같은 주문 ID와 Idempotency Key를 사용한다.
+        // 모든 요청은 같은 주문 ID와 Idempotency Key를 사용한다.
         return mockMvc.perform(post("/api/payments/approve")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -161,6 +163,36 @@ class PaymentIdempotencyConcurrencyIntegrationTest {
                                 }
                                 """.formatted(orderId, IDEMPOTENCY_KEY)))
                 .andReturn();
+    }
+
+    /**
+     * 처리 중인 동일 멱등성 키로 들어온 요청이 중복 요청 응답을 받았는지 확인한다.
+     */
+    private void assertDuplicateResponse(MvcResult duplicateResponse) throws Exception {
+        assertThat(duplicateResponse.getResponse().getStatus()).isEqualTo(409);
+        assertThat(duplicateResponse.getResponse().getContentAsString())
+                .contains("\"code\":\"DUPLICATE_PAYMENT_REQUEST\"");
+    }
+
+    /**
+     * 멱등성 키를 선점한 단 하나의 요청이 정상 승인 결과를 받았는지 확인한다.
+     */
+    private void assertApprovedResponse(MvcResult approvedResponse) throws Exception {
+        assertThat(approvedResponse.getResponse().getStatus()).isEqualTo(200);
+        assertThat(approvedResponse.getResponse().getContentAsString())
+                .contains("\"status\":\"APPROVED\"")
+                .contains("\"idempotencyKey\":\"" + IDEMPOTENCY_KEY + "\"");
+    }
+
+    /**
+     * 500,000P 승인 성공 경로를 검증할 수 있도록 테스트 시작 전에 데모 지갑 잔액을 보강한다.
+     */
+    private void topUpDemoWalletForLargePayment() {
+        // 테스트 데이터만 수정하며, 운영 초기 잔액 정책은 그대로 유지한다.
+        Wallet wallet = walletRepository.findByUserId(DEMO_USER_ID)
+                .orElseThrow();
+        wallet.deposit(TEST_BALANCE_TOP_UP_AMOUNT);
+        walletRepository.save(wallet);
     }
 
     /**
